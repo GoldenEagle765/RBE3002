@@ -1,0 +1,16 @@
+slam_toolbox:
+  ros__parameters:
+    map_update_interval: 1.0
+    minimum_time_interval: 0.1
+    
+    minimum_travel_distance: 0.1
+    minimum_travel_heading: 0.1
+    
+    solve_frequency: 1.0
+    transform_publish_period: 0.05
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    scan_topic: /scan
+    mode: mapping
+    use_sim_time: true
