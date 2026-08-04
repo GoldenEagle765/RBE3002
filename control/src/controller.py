@@ -9,6 +9,7 @@ from tf2_ros.transform_listener import TransformListener
 from tf2_ros.buffer import Buffer
 import tf2_geometry_msgs
 from rclpy.callback_groups import ReentrantCallbackGroup
+from std_msgs.msg import Bool
 
 # import the chosen callback group type from rclpy.executors
 from rclpy.executors import MultiThreadedExecutor
@@ -28,6 +29,8 @@ class Controller(Node):
 
         # Publish TwistStamped messages to the '/cmd_vel' topic.
         self.publisher_ = self.create_publisher(TwistStamped, '/cmd_vel', 10)
+
+        self.active_path_publisher = self.create_publisher(Bool, '/active_path', 10)
         
         # create a callback group for the '/odom', '/move_base_simple/goal '/nav_path' subscriptions
             # visit ths page of the ROS 2 docs for guidance:
@@ -90,24 +93,26 @@ class Controller(Node):
         Drive straight while continuously refreshing the physical
         TurtleBot's velocity command.
         """
-        distance_tolerance = 0.01
+        distance_tolerance = 0.05
 
         start_x = self.px
         start_y = self.py
 
         rate = self.create_rate(10.0)
+        try:
+            while rclpy.ok():
+                distance_covered = sqrt((self.px - start_x)**2 +(self.py-start_y)**2)
 
-        while rclpy.ok():
-            distance_covered = sqrt((self.px - start_x)**2 +(self.py-start_y)**2)
+                if distance_covered >= distance - distance_tolerance:
+                    break
+                    
+                self.send_speed(linear_speed, 0.0)
+                rate.sleep()
 
-            if distance_covered >= distance - distance_tolerance:
-                break
-                
-            self.send_speed(linear_speed, 0.0)
-            rate.sleep()
-
-        self.send_speed(0.0, 0.0)
-        
+            # self.send_speed(0.0, 0.0)
+        except Exception as e:
+            self.get_logger().error(f"Error driving: {e}")
+            self.send_speed(0.0, 0.0)
 
     def rotate(self, angle: float, angular_speed: float):
         '''
@@ -115,25 +120,29 @@ class Controller(Node):
         :param angle         [float] [rad]   The distance to cover.
         :param angular_speed [float] [rad/s] The angular speed.
         '''
-        angle_tolerance = 0.05
+        angle_tolerance = 0.1
 
         target_theta = atan2(sin(self.pth + angle),cos(self.pth + angle))
 
         rate = self.create_rate(10.0)
 
-        while rclpy.ok():
-            
-            angle_error = atan2(sin(target_theta - self.pth),cos(target_theta - self.pth))
-
-            if abs(angle_error) <= angle_tolerance:
-                break
+        try:
+            while rclpy.ok():
                 
-            direction = 1.0 if angle_error > 0.0 else -1.0
+                angle_error = atan2(sin(target_theta - self.pth),cos(target_theta - self.pth))
 
-            self.send_speed(0.0,direction * abs(angular_speed))
-            rate.sleep()
+                if abs(angle_error) <= angle_tolerance:
+                    break
+                    
+                direction = 1.0 if angle_error > 0.0 else -1.0
 
-        self.send_speed(0.0, 0.0)
+                self.send_speed(0.0,direction * abs(angular_speed))
+                rate.sleep()
+
+            # self.send_speed(0.0, 0.0)
+        except Exception as e:
+            self.get_logger().error(f"Error rotating: {e}")
+            self.send_speed(0.0, 0.0)
 
       #  pass  # delete this before you run your code
 
@@ -150,7 +159,7 @@ class Controller(Node):
         angle_error = atan2(sin(target_angle - self.pth),cos(target_angle - self.pth))
         distance = sqrt(dx ** 2 + dy ** 2)
         self.rotate(angle_error, 0.5)
-        self.drive(distance, 0.15)
+        self.drive(distance, 0.1)
                 
 
         #quat = goal.pose.orientation
@@ -173,12 +182,17 @@ class Controller(Node):
             self.get_logger().warning('Received an empty path')
             self.send_speed(0.0, 0.0)
             return
-        
-        for pose in path.poses:
-            self.go_to(pose)
-        
-      #  pass  # delete this before you run your code
 
+        self.active_path_publisher.publish(Bool(data=True))
+
+        for i in range(len(path.poses)): # n = #poses to skip 
+            n = 2
+            if i >= (len(path.poses)-n) : self.go_to(path.poses[i])
+        
+            else: self.go_to(path.poses[i + n])
+
+        self.send_speed(0.0, 0.0)
+        self.active_path_publisher.publish(Bool(data=False))
 
     def smooth_drive(self, distance: float, linear_speed: float):
         '''
@@ -199,9 +213,14 @@ def main(args=None):
     try:
         executor.spin()
     except KeyboardInterrupt:
-        pass
+        try:
+            node.send_speed(0.0, 0.0)
+        except Exception as e:
+            node.get_logger().error(f"Error stopping robot: {e}")
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        executor.shutdown()
+        if rclpy.ok():
+            node.destroy_node()
+            rclpy.shutdown()
 if __name__ == '__main__':
     main()

@@ -16,11 +16,14 @@ from geometry_msgs.msg import Point, PoseStamped
 from  nav_msgs.msg import OccupancyGrid, Path, MapMetaData, GridCells
 from nav_msgs.srv import GetPlan
 import cv2 as cv
+from rclpy.executors import MultiThreadedExecutor
+import math
 
 from geometry_msgs.msg import Point, PointStamped, PoseStamped
 from priority_queue import PriorityQueue 
 
 import tf2_geometry_msgs
+from visualization_msgs.msg import Marker
 
 class GraphNode():
     def __init__(self,pose,parent,cost):
@@ -43,8 +46,9 @@ class PathPlanner(Node):
 
         super().__init__("path_planner") # Initialize the node and call it "path_planner"
         self.map_frame = 'map'
-        self.declare_parameter('padding', 1)
-        self.declare_parameter('safe_threshold', 40)
+        self.declare_parameter('padding', 3)
+        self.declare_parameter('safe_threshold', 30)
+        self.declare_parameter('obstacle_threshold', 60)
         self.cb_group = ReentrantCallbackGroup()
 
         # Create Quality of Service (QoS) policy. Include a profile, depth, and durablilty policy. 
@@ -60,6 +64,8 @@ class PathPlanner(Node):
 
         # TODO: Create other publishers with varying message types (GridCells, etc) for visualizing data in Rviz
         self.visited_publisher = self.create_publisher(GridCells, '/path_planner/visited', 10)
+
+        self.centroid_publisher = self.create_publisher(Marker, '/goal_point', 10)
 
 
 
@@ -78,6 +84,7 @@ class PathPlanner(Node):
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
         self.safe_threshold = int(self.get_parameter('safe_threshold').value)
+        self.obstacle_threshold = int(self.get_parameter('obstacle_threshold').value)
 
     def handle_click(self, msg: PointStamped):
         if self.map.size == 0:
@@ -99,20 +106,26 @@ class PathPlanner(Node):
             )
 
     @staticmethod
-    def obstacle_expansion( original_map:npt.NDArray[np.int32], padding:int, occupancy_threshold:int=40) -> npt.NDArray[np.int32]:
+    def obstacle_expansion( original_map:npt.NDArray[np.int32], padding:int, safety_threshold:int=25, obstacle_threshold:int=70) -> npt.NDArray[np.int32]:
         """
         Expands obstacles to be "padding" larger in all directions
         :param original_map     ndarray     Map of obstacles
         :param padding          int         Number of cells from obstacle to consider unsafe
-        :param occupancy_threshold int      Value above which a cell is considered occupied
+        :param safety_threshold int      Value above which a cell is considered safe
         :return                 ndarray     Map of safe configuration space.
         """
         padding = max(0, int(padding))
-        occupancy_threshold = max(0, min(100, int(occupancy_threshold)))
+        safety_threshold = max(0, min(100, int(safety_threshold)))
+        obstacle_threshold = max(0, min(100, int(obstacle_threshold)))
 
         # Get the unknown cells and occupied cells from the original map (boolean masks)
-        unknown_mask = (original_map < 0).astype(bool)
-        occupied_mask = (original_map >= occupancy_threshold).astype(bool)
+        
+        unknown_mask_unexplored = (original_map < 0).astype(bool)
+        unknown_mask_uncertain = ((original_map > safety_threshold) & (original_map < obstacle_threshold)).astype(bool)
+
+        unknown_mask = np.logical_or(unknown_mask_unexplored, unknown_mask_uncertain)
+
+        occupied_mask = (original_map >= obstacle_threshold).astype(bool)
 
         # bool -> uint8 so CV can understand data type
         obstacle_mask = occupied_mask.astype(np.uint8)
@@ -150,8 +163,8 @@ class PathPlanner(Node):
         # TODO Expand obstacles so your map represents where the robots center could be. 
 
         padding = int(self.get_parameter('padding').value)
-        occupancy_threshold = int(self.get_parameter('safe_threshold').value)
-        padded_map = self.obstacle_expansion(original_map, padding, occupancy_threshold)
+        safety_threshold = int(self.get_parameter('safe_threshold').value)
+        padded_map = self.obstacle_expansion(original_map, padding, safety_threshold)
         # TODO Store safe numpy array map to self.map and MapMetaData as member variables
         self.map = padded_map
         self.map_info = map.info
@@ -316,6 +329,21 @@ class PathPlanner(Node):
         return neighbors
         # pass
 
+    def find_nearest_safe_cell(self, goal_x: int, goal_y: int, search_radius: int = 2) -> Tuple[int, int] | None:
+        if 0 <= goal_x < self.map_info.width and 0 <= goal_y < self.map_info.height:
+            if self.map[goal_y, goal_x] == 0:
+                return (goal_x, goal_y)
+        # How many cells to search in every direction around the goal
+        for r in range(1, search_radius + 1):
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    if abs(dx) != r and abs(dy) != r:
+                        continue  # Only check the perimeter of the search box
+                    nx, ny = goal_x + dx, goal_y + dy
+                    if 0 <= nx < self.map_info.width and 0 <= ny < self.map_info.height:
+                        if self.map[ny, nx] == 0:
+                            return (nx, ny)
+        return None
 
     def get_edge_cost(self,p1: tuple[int, int],p2: tuple[int, int]):
         """
@@ -432,29 +460,25 @@ class PathPlanner(Node):
         #Start Pose to map coordinates
         self._logger.info("Transforming start pose to map frame")
         request.start.header.stamp = rclpy.time.Time().to_msg()
-        start_pose = self._tf_buffer.transform(request.start, self.map_frame)
+        start_pose = self._tf_buffer.transform(request.start, self.map_frame, timeout=rclpy.duration.Duration(seconds=0.5))
         start = self.world_to_grid(self.map_info, start_pose.pose.position)
         goal = self.world_to_grid(self.map_info, request.goal.pose.position)
 
-        for name, cell in (("start", start), ("goal", goal)):
-            x, y = cell
-
-            if not (0 <= x < self.map_info.width and 0 <= y < self.map_info.height):
-                self.get_logger().warning(
-                    f"The {name} cell {cell} is outside the map."
-                )
-                response.plan = self.build_path_message([])
-                return response
-
-            if self.map[y, x] != 0:
-                self.get_logger().warning(
-                    f"The {name} cell {cell} is not safe."
-                )
+        # If goal is unsafe or out of bounds, search for nearest safe cell
+        if not (0 <= goal[0] < self.map_info.width and 0 <= goal[1] < self.map_info.height) or self.map[goal[1], goal[0]] != 0:
+            self.get_logger().warning(f"Goal {goal} is unsafe or out of bounds. Searching for nearest safe cell...")
+            safe_goal = self.find_nearest_safe_cell(goal[0], goal[1], search_radius=3)
+            if safe_goal is not None:
+                self.get_logger().info(f"Snapped goal from {goal} to safe cell {safe_goal}")
+                goal = safe_goal
+            else:
+                self.get_logger().warning("No safe cells found nearby. Goal is completely unreachable.")
                 response.plan = self.build_path_message([])
                 return response
 
         # TODO: Calculate a path using A* 
         self.get_logger().info(f"Planning from {start} to {goal}.")
+        self.publish_goal_marker(goal)
         path = self.a_star(start, goal)
 
         if path:
@@ -469,6 +493,34 @@ class PathPlanner(Node):
         return response
 
         # pass
+    def publish_goal_marker(self, goal: tuple[int, int]):
+        """
+        Publishes a visualization marker for the goal point.
+        :param goal [(int, int)] The cell coordinate of the goal.
+        """
+        marker = Marker()
+        marker.header.frame_id = self.map_frame
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "goal_point"
+        marker.id = 0
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+
+        # Convert grid coordinates to world coordinates
+        world_point = self.grid_to_world(self.map_info, goal)
+        marker.pose.position = world_point
+        marker.pose.orientation.w = 1.0
+
+        marker.scale.x = self.map_info.resolution * 1.25
+        marker.scale.y = self.map_info.resolution * 1.25
+        marker.scale.z = 1.0
+
+        marker.color.r = 1.0
+        marker.color.g = 1.0
+        marker.color.b = 0.2
+        marker.color.a = 1.0
+
+        self.centroid_publisher.publish(marker)
 
     @staticmethod
     def optimize_path(path: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
@@ -495,11 +547,11 @@ class PathPlanner(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    # TODO: add your node
     node = PathPlanner()
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
     try:
-        # TODO: Spin your node
-        rclpy.spin(node)
+        executor.spin()
         pass
 
     except KeyboardInterrupt:

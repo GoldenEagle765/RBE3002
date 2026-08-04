@@ -8,12 +8,6 @@ import xacro
 
 def generate_launch_description():   
 
-    small_field_launch_path = os.path.join(get_package_share_directory('simulation'), 'launch', 'small_field.launch.py')
-
-    small_field_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(small_field_launch_path),
-    )
-
     rviz_config_dir = os.path.join(
         get_package_share_directory('exploration'),
         'config',
@@ -22,7 +16,7 @@ def generate_launch_description():
     slam_config_dir = os.path.join(
         get_package_share_directory('exploration'),
         'config',
-        'slam_params.yaml'
+        'slam_params_real.yaml'
     )
 
     rviz2 =  Node(
@@ -32,17 +26,12 @@ def generate_launch_description():
         arguments=['-d', rviz_config_dir],
         output='screen')
 
-    static_transform = Node(
-        package="tf2_ros", 
-        executable="static_transform_publisher",
-        arguments=["0.5", "0.2", "0", "0.78", "0", "0", "odom", "map"] 
-    )
 
     controller = Node(
         package = 'control',
         executable = 'controller.py',
         name = 'controller',
-        parameters = [{'use_sim_time': True}],
+        parameters = [{'use_sim_time': False}],
         output='screen'
     )
 
@@ -57,7 +46,7 @@ def generate_launch_description():
         package = 'planning',
         executable = 'path_planner.py',
         name = 'path_planner',
-        parameters = [{'use_sim_time': True}],
+        parameters = [{'use_sim_time': False}],
         output='screen'
     )
 
@@ -65,15 +54,13 @@ def generate_launch_description():
         package = 'exploration',
         executable = 'frontier_explorer.py',
         name = 'frontier_explorer',
-        parameters = [{'use_sim_time': True}],
+        parameters = [{'use_sim_time': False}],
         output = 'screen'
     )
 
     return LaunchDescription([
-        SetParameter(name='use_sim_time', value=True),
-        small_field_launch,
+        SetParameter(name='use_sim_time', value=False),
         rviz2,
-        static_transform,
         controller,
         slam_launch,
         path_planner_node,

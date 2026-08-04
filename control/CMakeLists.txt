@@ -21,7 +21,6 @@ install(DIRECTORY
 )
 
 install(PROGRAMS
-  # TODO: add more nodes here
   src/path_generator.py
   src/controller.py
   DESTINATION lib/control

@@ -32,7 +32,7 @@ install(PROGRAMS
   planning/path_planner.py
   planning/priority_queue.py
   
-  DESTINATION lib/planning
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 

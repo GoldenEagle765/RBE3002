@@ -13,6 +13,6 @@ slam_toolbox:
     base_frame: base_link
     scan_topic: /scan
     mode: mapping
-    resolution: 0.03
+    resolution: 0.025
     max_laser_range: 3.5
-    use_sim_time: true
+    use_sim_time: false

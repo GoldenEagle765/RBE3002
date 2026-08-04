@@ -12,12 +12,13 @@ find_package(ament_cmake REQUIRED)
 # find_package(<dependency> REQUIRED)
 find_package(rclpy REQUIRED)
 install(DIRECTORY
-  launch src rviz config
+  launch src config
   DESTINATION share/${PROJECT_NAME}/
 )
 
 install(PROGRAMS
-  DESTINATION lib/control
+  src/frontier_explorer.py
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)
