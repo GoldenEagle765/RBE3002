@@ -49,8 +49,11 @@ class Controller(Node):
         # This lets you use the command 
         # MSG_IN_NEW_FRAME = self._tf_buffer.transform(MSG_TO_BE_TRANSFORMED,NEW_FRAME, rclpy.duration.Duration(seconds=1))
         # that I found helpful
+        self.fwd_effort = 0.0
+        self.ang_effort = 0.0
 
-
+        self.kp_fwd = 1.25
+        self.kp_ang = 1.75
      #   pass # delete this before you run your code
 
 
@@ -65,7 +68,7 @@ class Controller(Node):
         quat = msg.pose.pose.orientation
         
         self.pth = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w]).as_euler('xyz')[2]
-        
+
         self.odom_received = True
        # pass  # delete this before you run your code
     
@@ -105,8 +108,10 @@ class Controller(Node):
 
                 if distance_covered >= distance - distance_tolerance:
                     break
-                    
-                self.send_speed(linear_speed, 0.0)
+
+                distance_error = distance - distance_covered
+                
+                self.send_speed(distance_error * self.kp_fwd, 0.0)
                 rate.sleep()
 
             # self.send_speed(0.0, 0.0)
@@ -120,7 +125,7 @@ class Controller(Node):
         :param angle         [float] [rad]   The distance to cover.
         :param angular_speed [float] [rad/s] The angular speed.
         '''
-        angle_tolerance = 0.3
+        angle_tolerance = 0.05
 
         target_theta = atan2(sin(self.pth + angle),cos(self.pth + angle))
 
@@ -136,7 +141,9 @@ class Controller(Node):
                     
                 direction = 1.0 if angle_error > 0.0 else -1.0
 
-                self.send_speed(0.0,direction * abs(angular_speed))
+                self.ang_effort = direction * abs(angular_speed) * self.kp_ang * abs(angle_error)
+
+                self.send_speed(0.0,self.ang_effort)
                 rate.sleep()
 
             # self.send_speed(0.0, 0.0)
@@ -185,11 +192,14 @@ class Controller(Node):
 
         self.active_path_publisher.publish(Bool(data=True))
 
-        for i in range(len(path.poses)): # n = #poses to skip 
-            n = 2
-            if i >= (len(path.poses)-n) : self.go_to(path.poses[i])
+        # for i in range(len(path.poses)): # n = #poses to skip 
+        #     n = 2
+        #     if i >= (len(path.poses)-n) : self.go_to(path.poses[i])
         
-            else: self.go_to(path.poses[i + n])
+        #     else: self.go_to(path.poses[i + n])
+        self.get_logger().info(f"Received path with {len(path.poses)} poses. Starting to follow the path.")
+        for pose in path.poses:
+            self.go_to(pose)
 
         self.send_speed(0.0, 0.0)
         self.active_path_publisher.publish(Bool(data=False))

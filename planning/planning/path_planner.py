@@ -46,8 +46,8 @@ class PathPlanner(Node):
 
         super().__init__("path_planner") # Initialize the node and call it "path_planner"
         self.map_frame = 'map'
-        self.declare_parameter('padding', 3.5)
-        self.declare_parameter('safe_threshold', 30)
+        self.declare_parameter('padding', 3)
+        self.declare_parameter('safe_threshold', 40)
         self.declare_parameter('obstacle_threshold', 60)
         self.cb_group = ReentrantCallbackGroup()
 
@@ -422,7 +422,7 @@ class PathPlanner(Node):
                 self.draw_visited(visited)
                 return self.build_path(current_node)
 
-            for neighbor in self.neighbors_of_4(current_node.pose):
+            for neighbor in self.neighbors_of_8(current_node.pose):
                 if neighbor in visited:
                     continue
 
@@ -449,7 +449,6 @@ class PathPlanner(Node):
         :return         nav_msgs.srv._get_plan.GetPlan_Response     
         """
         # GROUP
-        time.sleep(2)
         # TODO: Add error handling for if there is no map available
         if self.map.size == 0:
             self.get_logger().warning("Cannot plan because no map is available.")
@@ -460,7 +459,7 @@ class PathPlanner(Node):
         # TODO: Find cell index of start and goal poses in map
         #Start Pose to map coordinates
         self._logger.info("Transforming start pose to map frame")
-        request.start.header.stamp = rclpy.time.Time().to_msg()
+        request.start.header.stamp = self.get_clock().now().to_msg()
         start_pose = self._tf_buffer.transform(request.start, self.map_frame, timeout=rclpy.duration.Duration(seconds=0.5))
         start = self.world_to_grid(self.map_info, start_pose.pose.position)
         goal = self.world_to_grid(self.map_info, request.goal.pose.position)

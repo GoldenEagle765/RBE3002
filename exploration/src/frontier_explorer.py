@@ -18,7 +18,8 @@ from nav_msgs.srv import GetPlan
 import yaml
 from std_msgs.msg import Bool
 from visualization_msgs.msg import Marker
-
+from std_srvs.srv import Empty
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 
 class FrontierExplorer(Node):
     def __init__(self):
@@ -50,12 +51,6 @@ class FrontierExplorer(Node):
 
         self.has_path = False
 
-    # def curr_cell(self, cell: Point):
-    #     curr_cell = cell
-    #     curr_cell.x = PathPlanner.world_to_grid.x 
-    #     curr_cell.y = PathPlanner.world_to_grid.y
-    #     return self.curr_cell
-
     # Save safe map, find frontiers, choose explore point
     def handle_path_state(self, msg: Bool):
         if msg.data == False:
@@ -85,12 +80,10 @@ class FrontierExplorer(Node):
         else:
             self.publish_centroids(centroids)
             goal_point = self.next_target(centroids)
-        
-        if(goal_point == None):
-            self._logger.info("Couldn't find a target")
 
-        else:
-            self.send_request(goal_point)
+            if goal_point is not None:
+                self._logger.info("Requesting path to goal point: (" + str(goal_point.x) + "," + str(goal_point.y) + ")")
+                self.send_request(goal_point)
 
     def save_map(self):
         cv.imwrite('safe_map.png', self.safe_map)
@@ -115,12 +108,14 @@ class FrontierExplorer(Node):
         safe_mask = (self.safe_map == 0).astype(np.uint8)
         unknown_mask = (self.safe_map == -1)
         unknown_expanded = cv.dilate(unknown_mask.astype(np.uint8), np.ones((3, 3), np.uint8))
-        self._logger.info("Calculated frontier mask")
         unfiltered_frontiers = cv.bitwise_and(safe_mask, unknown_expanded)
-        # filtered_frontiers = cv.bitwise_and(unfiltered_frontiers, cv.bitwise_not(unknown_mask.astype(np.uint8)))
+        unfiltered_frontiers = cv.bitwise_and(unfiltered_frontiers, cv.bitwise_not(cv.erode(safe_mask, np.ones((3, 3), np.uint8), iterations=1)))
+        # unfiltered_frontiers = cv.morphologyEx(unfiltered_frontiers, cv.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        # unfiltered_frontiers = cv.erode(unfiltered_frontiers, np.ones((3, 3), np.uint8), iterations=1)
         
 
 
+        self._logger.info("Calculated Frontiers")
         # return filtered_frontiers
         return unfiltered_frontiers
 
@@ -156,14 +151,12 @@ class FrontierExplorer(Node):
         num_labels, labels, stats, centroids = cv.connectedComponentsWithStats(frontiers, connectivity=8)
         valid_centroids = []
         for i in range(1, num_labels):
-            if(stats[i, cv.CC_STAT_AREA] > 5):
+            if(stats[i, cv.CC_STAT_AREA] > 10):
                 cx, cy = centroids[i]
                 valid_centroids.append((cx, cy))
         self._logger.info("Found " + str(len(valid_centroids)) + " valid centroids")
-        if valid_centroids == 0:
-            self.find_centroids(self.find_frontiers())
-                
-        else: return valid_centroids
+        if len(valid_centroids) == 0:
+            return []
         return valid_centroids
 
     def publish_centroids(self, centroids: List[Tuple[float, float]]):
@@ -217,7 +210,7 @@ class FrontierExplorer(Node):
 
     def send_request(self, goal: Point):
             # Start Pose
-            
+            self._logger.info("Sending request to path planner")
             start_pose = PoseStamped()
             start_pose.header.frame_id = 'base_link'
             start_pose.header.stamp = self.get_clock().now().to_msg()
@@ -233,7 +226,7 @@ class FrontierExplorer(Node):
             self.get_logger().info("starting service")
     
             future = self.cli.call_async(self.req)
-    
+
             future.add_done_callback(self.publish)  # ← non-blocking
             self.get_logger().info("ending callback")
     
@@ -255,3 +248,32 @@ def main(args=None):
             rclpy.shutdown()
 if __name__ == '__main__':
     main()
+
+
+class Localization(Node):
+    def __init__(self):
+        super().__init__("Localization")
+    
+        self.cb_group = ReentrantCallbackGroup()
+        qos_profile = QoSProfile(depth = 1,durability = QoSDurabilityPolicy.TRANSIENT_LOCAL, history=QoSHistoryPolicy.KEEP_LAST)
+        
+        # Sub to safe map
+        self.sub_safe_map = self.create_subscription(OccupancyGrid, '/map/safe', self.handle_safe_map, qos_profile, callback_group=self.cb_group)
+        self.cmd = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.localcli = self.create_client(Empty, '/global_localization') #Estimate Global Pose
+        self.amcl_pose = self.create_subscription(PoseWithCovarianceStamped, '/amcl_pose', 10)
+        
+
+        while not self.localcli.wait_for_service(timeout_sec=1):
+            self.get_logger('Waiting for AMCL')
+
+        self.send_req
+
+
+    def global_loc(self):
+        self.req = Empty.Request()
+        self.future = self.localcli.call_async(self.req)
+        spin = Twist()
+        spin.angluar.z = 0.2 #spin to help localize 
+        self.cmd.publish(spin)
+

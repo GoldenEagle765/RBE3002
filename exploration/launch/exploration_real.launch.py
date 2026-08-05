@@ -5,6 +5,8 @@ from launch_ros.actions import Node, SetParameter
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 import xacro
+from launch.substitutions import PathJoinSubstitution
+from launch_ros.actions import Node
 
 def generate_launch_description():   
 
@@ -25,7 +27,23 @@ def generate_launch_description():
         name='rviz2',
         arguments=['-d', rviz_config_dir],
         output='screen')
-
+    
+    filter = Node(
+        package="laser_filters",    
+        executable="scan_to_scan_filter_chain",
+            parameters=[
+                PathJoinSubstitution([
+                    get_package_share_directory("exploration"),
+                    "config",
+                    "bin_filter.yaml",
+                ])
+            ],
+        remappings = [
+            ('scan', '/scan'),
+            ('scan_filtered', '/scan_filtered')
+        ]
+        )
+    
 
     controller = Node(
         package = 'control',
@@ -64,5 +82,6 @@ def generate_launch_description():
         controller,
         slam_launch,
         path_planner_node,
-        frontier_explorer_node
+        frontier_explorer_node,
+        filter,
     ])
