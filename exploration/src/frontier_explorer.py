@@ -160,6 +160,10 @@ class FrontierExplorer(Node):
                 cx, cy = centroids[i]
                 valid_centroids.append((cx, cy))
         self._logger.info("Found " + str(len(valid_centroids)) + " valid centroids")
+        if valid_centroids == 0:
+            self.find_centroids(self.find_frontiers())
+                
+        else: return valid_centroids
         return valid_centroids
 
     def publish_centroids(self, centroids: List[Tuple[float, float]]):

@@ -120,7 +120,7 @@ class Controller(Node):
         :param angle         [float] [rad]   The distance to cover.
         :param angular_speed [float] [rad/s] The angular speed.
         '''
-        angle_tolerance = 0.1
+        angle_tolerance = 0.3
 
         target_theta = atan2(sin(self.pth + angle),cos(self.pth + angle))
 

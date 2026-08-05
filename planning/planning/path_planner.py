@@ -4,7 +4,7 @@ from typing import List, Tuple
 import numpy.typing as npt
 
 from rclpy.node import Node
-
+import time
 import numpy as np
 import math
 import rclpy
@@ -46,7 +46,7 @@ class PathPlanner(Node):
 
         super().__init__("path_planner") # Initialize the node and call it "path_planner"
         self.map_frame = 'map'
-        self.declare_parameter('padding', 3)
+        self.declare_parameter('padding', 3.5)
         self.declare_parameter('safe_threshold', 30)
         self.declare_parameter('obstacle_threshold', 60)
         self.cb_group = ReentrantCallbackGroup()
@@ -409,7 +409,7 @@ class PathPlanner(Node):
 
         best_cost = {start: 0.0}
         visited = set()
-
+        
         while not frontier.empty():
             current_node = frontier.get()
 
@@ -449,6 +449,7 @@ class PathPlanner(Node):
         :return         nav_msgs.srv._get_plan.GetPlan_Response     
         """
         # GROUP
+        time.sleep(2)
         # TODO: Add error handling for if there is no map available
         if self.map.size == 0:
             self.get_logger().warning("Cannot plan because no map is available.")
