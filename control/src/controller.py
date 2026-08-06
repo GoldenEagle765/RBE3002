@@ -14,7 +14,7 @@ from std_msgs.msg import Bool
 # import the chosen callback group type from rclpy.executors
 from rclpy.executors import MultiThreadedExecutor
 
-from math import atan2, sin, cos, sqrt
+import math
 
 class Controller(Node):
     def __init__(self):
@@ -104,7 +104,7 @@ class Controller(Node):
         rate = self.create_rate(10.0)
         try:
             while rclpy.ok():
-                distance_covered = sqrt((self.px - start_x)**2 +(self.py-start_y)**2)
+                distance_covered = math.sqrt((self.px - start_x)**2 +(self.py-start_y)**2)
 
                 if distance_covered >= distance - distance_tolerance:
                     break
@@ -128,22 +128,26 @@ class Controller(Node):
         '''
         angle_tolerance = 0.17
 
-        target_theta = atan2(sin(self.pth + angle),cos(self.pth + angle))
+        target_theta = math.atan2(math.sin(self.pth + angle),math.cos(self.pth + angle))
 
         rate = self.create_rate(10.0)
 
         try:
             while rclpy.ok():
                 
-                angle_error = atan2(sin(target_theta - self.pth),cos(target_theta - self.pth))
+                angle_error = math.atan2(math.sin(target_theta - self.pth),math.cos(target_theta - self.pth))
 
                 if abs(angle_error) <= angle_tolerance:
                     break
                     
                 direction = 1.0 if angle_error > 0.0 else -1.0
 
-                self.ang_effort = direction * abs(angular_speed) * self.kp_ang * abs(angle_error)
+                min_effort = 0.15
 
+                self.ang_effort = abs(angular_speed) * self.kp_ang * abs(angle_error)
+
+                effort = max(min_effort, abs(self.ang_effort))
+                self.ang_effort = effort * direction
                 self.send_speed(0.0,self.ang_effort)
                 rate.sleep()
                 self._logger.info(f"Angle error: {angle_error:.2f} rad")
@@ -165,15 +169,15 @@ class Controller(Node):
             self.get_logger().warn("Waiting for initial odometry message...")
             return
 
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = rclpy.time.Time().to_msg()  # Update the timestamp to the current time
         goal = self._tf_buffer.transform(msg,'odom',timeout=rclpy.duration.Duration(seconds=1.0))
         dx = goal.pose.position.x - self.px
         dy = goal.pose.position.y - self.py
-        target_angle = atan2(dy, dx)
-        angle_error = atan2(sin(target_angle - self.pth),cos(target_angle - self.pth))
-        distance = sqrt(dx ** 2 + dy ** 2)
+        target_angle = math.atan2(dy, dx)
+        angle_error = math.atan2(math.sin(target_angle - self.pth),math.cos(target_angle - self.pth))
+        distance = math.sqrt(dx ** 2 + dy ** 2)
         self.rotate(angle_error, 0.5)
-        self.drive(distance, 0.2)
+        self.drive(distance, 0.175)
 
         self.send_speed(0.0, 0.0)
 

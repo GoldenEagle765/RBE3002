@@ -13,7 +13,7 @@ find_package(laser_filters REQUIRED)
 # find_package(<dependency> REQUIRED)
 find_package(rclpy REQUIRED)
 install(DIRECTORY
-  launch src config
+  launch src config map
   DESTINATION share/${PROJECT_NAME}/
 )
 

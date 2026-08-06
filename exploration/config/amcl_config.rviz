@@ -6,9 +6,12 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
-        - /Map1
         - /LaserScan1/Topic1
         - /Path1
+        - /Map1
+        - /Map1/Topic1
+        - /ParticleCloud1
+        - /ParticleCloud1/Topic1
       Splitter Ratio: 0.5
     Tree Height: 745
   - Class: rviz_common/Selection
@@ -16,6 +19,7 @@ Panels:
   - Class: rviz_common/Tool Properties
     Expanded:
       - /Publish Point1
+      - /2D Pose Estimate1
     Name: Tool Properties
     Splitter Ratio: 0.5886790156364441
   - Class: rviz_common/Views
@@ -43,29 +47,6 @@ Visualization Manager:
       Plane: XY
       Plane Cell Count: 10
       Reference Frame: <Fixed Frame>
-      Value: true
-    - Alpha: 0.699999988079071
-      Binary representation: false
-      Binary threshold: 100
-      Class: rviz_default_plugins/Map
-      Color Scheme: map
-      Draw Behind: false
-      Enabled: true
-      Name: Map
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        Filter size: 10
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /map
-      Update Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /map_updates
-      Use Timestamp: false
       Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
@@ -168,40 +149,43 @@ Visualization Manager:
       Frames:
         All Enabled: false
         base_footprint:
-          Value: false
+          Value: true
         base_link:
           Value: true
         base_scan:
-          Value: false
+          Value: true
         caster_back_link:
-          Value: false
+          Value: true
         imu_link:
-          Value: false
+          Value: true
+        map:
+          Value: true
         odom:
           Value: true
         wheel_left_link:
-          Value: false
+          Value: true
         wheel_right_link:
-          Value: false
+          Value: true
       Marker Scale: 1
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: true
       Tree:
-        odom:
-          base_footprint:
-            base_link:
-              base_scan:
-                {}
-              caster_back_link:
-                {}
-              imu_link:
-                {}
-              wheel_left_link:
-                {}
-              wheel_right_link:
-                {}
+        map:
+          odom:
+            base_footprint:
+              base_link:
+                base_scan:
+                  {}
+                caster_back_link:
+                  {}
+                imu_link:
+                  {}
+                wheel_left_link:
+                  {}
+                wheel_right_link:
+                  {}
       Update Interval: 0
       Value: true
     - Angle Tolerance: 0.10000000149011612
@@ -310,10 +294,49 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /goal_point
       Value: true
+    - Alpha: 0.699999988079071
+      Binary representation: false
+      Binary threshold: 100
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: false
+      Enabled: true
+      Name: Map
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map_updates
+      Use Timestamp: false
+      Value: true
+    - Alpha: 1
+      Class: nav2_rviz_plugins/ParticleCloud
+      Color: 255; 25; 0
+      Enabled: true
+      Max Arrow Length: 0.30000001192092896
+      Min Arrow Length: 0.019999999552965164
+      Name: ParticleCloud
+      Shape: Arrow (Flat)
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /particle_cloud
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: odom
+    Fixed Frame: map
     Frame Rate: 30
   Name: root
   Tools:
@@ -337,6 +360,16 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /clicked_point
+    - Class: rviz_default_plugins/SetInitialPose
+      Covariance x: 0.25
+      Covariance y: 0.25
+      Covariance yaw: 0.06853891909122467
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: initialpose
   Transformation:
     Current:
       Class: rviz_default_plugins/TF
@@ -344,16 +377,16 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 13.543500900268555
+      Distance: 5.534897804260254
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.09679540991783142
-        Y: -0.015412976033985615
-        Z: -0.08031613379716873
+        X: 0.9960889220237732
+        Y: -0.11893782019615173
+        Z: -0.07922540605068207
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
@@ -362,7 +395,7 @@ Visualization Manager:
       Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 3.1454057693481445
+      Yaw: 3.1604058742523193
     Saved: ~
 Window Geometry:
   Displays:

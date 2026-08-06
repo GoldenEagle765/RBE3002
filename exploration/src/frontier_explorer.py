@@ -20,6 +20,7 @@ from std_msgs.msg import Bool
 from visualization_msgs.msg import Marker
 from std_srvs.srv import Empty
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
 class FrontierExplorer(Node):
     def __init__(self):
@@ -28,7 +29,12 @@ class FrontierExplorer(Node):
 
         self.cb_group = ReentrantCallbackGroup()
         qos_profile = QoSProfile(depth = 1,durability = QoSDurabilityPolicy.TRANSIENT_LOCAL, history=QoSHistoryPolicy.KEEP_LAST)
-
+        marker_qos = QoSProfile(
+                    depth=1,
+                    durability=DurabilityPolicy.VOLATILE,
+                    reliability=ReliabilityPolicy.RELIABLE,
+                    history=QoSHistoryPolicy.KEEP_LAST
+                )
         # Sub to safe map
         self.sub_safe_map = self.create_subscription(OccupancyGrid, '/map/safe', self.handle_safe_map, qos_profile, callback_group=self.cb_group)
 
@@ -46,10 +52,12 @@ class FrontierExplorer(Node):
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
-        self.frontier_publisher = self.create_publisher(GridCells, '/frontiers', 10)
-        self.centroid_publisher = self.create_publisher(Marker, '/frontier_centroids', 10)
+        self.frontier_publisher = self.create_publisher(GridCells, '/frontiers', marker_qos)
+        self.centroid_publisher = self.create_publisher(Marker, '/frontier_centroids', marker_qos)
 
         self.has_path = False
+
+        
 
     # Save safe map, find frontiers, choose explore point
     def handle_path_state(self, msg: Bool):
@@ -69,6 +77,13 @@ class FrontierExplorer(Node):
             return
 
         frontiers = self.find_frontiers()
+
+        # Implement go to start
+        if np.sum(frontiers) == 0:
+            self._logger.info("No frontier pixels found in mask: Going back to start")
+            self.send_request(Point())
+            return
+
         self.publish_frontier_cells(frontiers)
         centroids = self.find_centroids(frontiers)
 
@@ -83,7 +98,7 @@ class FrontierExplorer(Node):
 
             if goal_point is not None:
                 self._logger.info("Requesting path to goal point: (" + str(goal_point.x) + "," + str(goal_point.y) + ")")
-                self.has_path = True
+                # self.has_path = True
                 self.send_request(goal_point)
 
     def save_map(self):
@@ -112,7 +127,7 @@ class FrontierExplorer(Node):
         unfiltered_frontiers = cv.bitwise_and(safe_mask, unknown_expanded)
         unfiltered_frontiers = cv.bitwise_and(unfiltered_frontiers, cv.bitwise_not(cv.erode(safe_mask, np.ones((3, 3), np.uint8), iterations=1)))
         # unfiltered_frontiers = cv.morphologyEx(unfiltered_frontiers, cv.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        # unfiltered_frontiers = cv.erode(unfiltered_frontiers, np.ones((3, 3), np.uint8), iterations=1)
+        unfiltered_frontiers = cv.dilate(unfiltered_frontiers, np.ones((3, 3), np.uint8), iterations=1)
         
 
 

@@ -46,7 +46,7 @@ class PathPlanner(Node):
 
         super().__init__("path_planner") # Initialize the node and call it "path_planner"
         self.map_frame = 'map'
-        self.declare_parameter('padding', 3)
+        self.declare_parameter('padding', 6)
         self.declare_parameter('safe_threshold', 40)
         self.declare_parameter('obstacle_threshold', 60)
         self.cb_group = ReentrantCallbackGroup()
@@ -78,13 +78,15 @@ class PathPlanner(Node):
 
         # numpy array of cell values
         self.map = np.zeros((0,0))
-
+        self.safe_message = None
         # Setup TF Buffer and listener
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
         self.safe_threshold = int(self.get_parameter('safe_threshold').value)
         self.obstacle_threshold = int(self.get_parameter('obstacle_threshold').value)
+
+        self.start_pose = None
 
     def handle_click(self, msg: PointStamped):
         if self.map.size == 0:
@@ -310,6 +312,9 @@ class PathPlanner(Node):
         x, y = p
         neighbors = []
 
+        if self.map[y, x] != 0:
+            return []
+
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 if dx == 0 and dy == 0:
@@ -330,20 +335,26 @@ class PathPlanner(Node):
         return neighbors
         # pass
 
-    def find_nearest_safe_cell(self, goal_x: int, goal_y: int, search_radius: int = 2) -> Tuple[int, int] | None:
-        if 0 <= goal_x < self.map_info.width and 0 <= goal_y < self.map_info.height:
-            if self.map[goal_y, goal_x] == 0:
-                return (goal_x, goal_y)
-        # How many cells to search in every direction around the goal
-        for r in range(1, search_radius + 1):
-            for dx in range(-r, r + 1):
-                for dy in range(-r, r + 1):
-                    if abs(dx) != r and abs(dy) != r:
-                        continue  # Only check the perimeter of the search box
-                    nx, ny = goal_x + dx, goal_y + dy
-                    if 0 <= nx < self.map_info.width and 0 <= ny < self.map_info.height:
-                        if self.map[ny, nx] == 0:
-                            return (nx, ny)
+    def find_nearest_safe_cell(self, goal: tuple[int, int], search_radius: int = 3) -> Tuple[int, int] | None:
+        cells_to_look_at = [goal]
+
+        # Search in all directions of goal with a search radius
+        for dx in range(-search_radius, search_radius + 1):
+            for dy in range(-search_radius, search_radius + 1):
+                # Skip center point
+                if dx == 0 and dy == 0:
+                    continue
+                cells_to_look_at.append((goal[0] + dx, goal[1] + dy))
+
+        for coord in cells_to_look_at:
+            neighbors = self.neighbors_of_8(coord)
+            if len(neighbors) == 8:
+                path = self.a_star(self.start_pose, coord)
+                if len(path[1::]) > 5:
+                    self._logger.info("Alternative goal found")
+                    return coord
+
+        self._logger.info("Couldn't find a safe alternative goal")
         return None
 
     def get_edge_cost(self,p1: tuple[int, int],p2: tuple[int, int]):
@@ -399,6 +410,14 @@ class PathPlanner(Node):
         # GROUP
 
         if self.map.size == 0:
+            return []
+
+        if start is None:
+            self._logger.info("Recieved invalid start")
+            return []
+
+        if goal is None:
+            self._logger.info("Recieved invalid goal")
             return []
 
         for x, y in (start, goal):
@@ -475,25 +494,27 @@ class PathPlanner(Node):
                 y=trans.transform.translation.y,
                 z=trans.transform.translation.z
             )
-            start = self.world_to_grid(self.map_info, live_position)
+            self.start_pose = self.world_to_grid(self.map_info, live_position)
 
             q = trans.transform.rotation
             current_yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         except Exception as e:
             self.get_logger().warn(f"Live TF lookup failed ({e}), falling back to request.start...")
             request.start.header.stamp = self.get_clock().now().to_msg()
-            start_pose = self._tf_buffer.transform(request.start, self.map_frame, timeout=rclpy.duration.Duration(seconds=0.5))
-            start = self.world_to_grid(self.map_info, start_pose.pose.position)
+            self.start_pose = self._tf_buffer.transform(request.start, self.map_frame, timeout=rclpy.duration.Duration(seconds=0.5))
+            start = self.world_to_grid(self.map_info, self.start_pose.pose.position)
             
-            q = start_pose.pose.orientation
+            q = self.start_pose.pose.orientation
             current_yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
         goal = self.world_to_grid(self.map_info, request.goal.pose.position)
 
-        # If goal is unsafe or out of bounds, search for nearest safe cell
+
+        # If goal is unsafe or out of bounds, search for nearest safe cell upfront
         if not (0 <= goal[0] < self.map_info.width and 0 <= goal[1] < self.map_info.height) or self.map[goal[1], goal[0]] != 0:
             self.get_logger().warning(f"Goal {goal} is unsafe or out of bounds. Searching for nearest safe cell...")
-            safe_goal = self.find_nearest_safe_cell(goal[0], goal[1], search_radius=3)
+            safe_goal = self.find_nearest_safe_cell(goal, search_radius=5)
+
             if safe_goal is not None:
                 self.get_logger().info(f"Snapped goal from {goal} to safe cell {safe_goal}")
                 goal = safe_goal
@@ -502,26 +523,23 @@ class PathPlanner(Node):
                 response.plan = self.build_path_message([], current_yaw)
                 return response
 
-        # TODO: Calculate a path using A* 
-        self.get_logger().info(f"Planning from {start} to {goal}.")
+        # Plan path using A*
+        self.get_logger().info(f"Planning from {self.start_pose} to {goal}.")
         self.publish_goal_marker(goal)
-        path = self.a_star(start, goal)
+        path = self.a_star(self.start_pose, goal)
 
         if path:
-            self.get_logger().info(
-                f"Found a path containing {len(path)} cells."
-            )
+            self.get_logger().info(f"Found a path containing {len(path)} cells.")
         else:
             self.get_logger().warning("A* could not find a path.")
 
-        # TODO: Return your path 
-        if path is None:
+        # Return your path 
+        if path is None or len(path) == 0:
             response.plan = self.build_path_message([], current_yaw)
         else:
             response.plan = self.build_path_message(path[:-1], current_yaw)
         return response
 
-        # pass
     def publish_goal_marker(self, goal: tuple[int, int]):
         """
         Publishes a visualization marker for the goal point.
