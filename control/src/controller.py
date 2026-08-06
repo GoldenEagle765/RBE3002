@@ -96,7 +96,7 @@ class Controller(Node):
         Drive straight while continuously refreshing the physical
         TurtleBot's velocity command.
         """
-        distance_tolerance = 0.05
+        distance_tolerance = 0.105
 
         start_x = self.px
         start_y = self.py
@@ -110,6 +110,7 @@ class Controller(Node):
                     break
 
                 distance_error = distance - distance_covered
+                self._logger.info(f"Distance error: {distance_error:.2f} m")
                 
                 self.send_speed(distance_error * self.kp_fwd, 0.0)
                 rate.sleep()
@@ -125,7 +126,7 @@ class Controller(Node):
         :param angle         [float] [rad]   The distance to cover.
         :param angular_speed [float] [rad/s] The angular speed.
         '''
-        angle_tolerance = 0.05
+        angle_tolerance = 0.17
 
         target_theta = atan2(sin(self.pth + angle),cos(self.pth + angle))
 
@@ -145,8 +146,8 @@ class Controller(Node):
 
                 self.send_speed(0.0,self.ang_effort)
                 rate.sleep()
-
-            # self.send_speed(0.0, 0.0)
+                self._logger.info(f"Angle error: {angle_error:.2f} rad")
+            self.send_speed(0.0, 0.0)
         except Exception as e:
             self.get_logger().error(f"Error rotating: {e}")
             self.send_speed(0.0, 0.0)
@@ -159,15 +160,22 @@ class Controller(Node):
         Uses rotate() and drive() to get to a specific pose.
         :param msg [PoseStamped] The target or "goal" pose.
         '''
-        goal = self._tf_buffer.transform(msg,'map',timeout=rclpy.duration.Duration(seconds=1.0))
+
+        if not hasattr(self, 'odom_received') or not self.odom_received:
+            self.get_logger().warn("Waiting for initial odometry message...")
+            return
+
+        msg.header.stamp = self.get_clock().now().to_msg()
+        goal = self._tf_buffer.transform(msg,'odom',timeout=rclpy.duration.Duration(seconds=1.0))
         dx = goal.pose.position.x - self.px
         dy = goal.pose.position.y - self.py
         target_angle = atan2(dy, dx)
         angle_error = atan2(sin(target_angle - self.pth),cos(target_angle - self.pth))
         distance = sqrt(dx ** 2 + dy ** 2)
         self.rotate(angle_error, 0.5)
-        self.drive(distance, 0.1)
-                
+        self.drive(distance, 0.2)
+
+        self.send_speed(0.0, 0.0)
 
         #quat = goal.pose.orientation
 
@@ -198,9 +206,11 @@ class Controller(Node):
         
         #     else: self.go_to(path.poses[i + n])
         self.get_logger().info(f"Received path with {len(path.poses)} poses. Starting to follow the path.")
-        for pose in path.poses:
+        step = 0
+        for pose in path.poses[1::]:
+            self._logger.info(f"Following pose {step + 1}/{len(path.poses) - 1}")
             self.go_to(pose)
-
+            step += 1
         self.send_speed(0.0, 0.0)
         self.active_path_publisher.publish(Bool(data=False))
 

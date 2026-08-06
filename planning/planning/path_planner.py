@@ -246,10 +246,11 @@ class PathPlanner(Node):
         #pass
         
 
-    def build_path_message(self, path: list[tuple[int, int]]) -> Path:
+    def build_path_message(self, path: list[tuple[int, int]], current_yaw: float = 0.0) -> Path:
         """
         Converts a list of cell coordinates to a Path Message
         :param path     [(int,int)]     The cell coordinates corresponding to the current map
+        :param current_yaw [float]      The current yaw angle of the robot
         :return         Path            
         """
         # INDIVIDUAL
@@ -262,8 +263,8 @@ class PathPlanner(Node):
             pose.header = path_message.header
             pose.pose.position = self.grid_to_world(self.map_info, cell)
 
-            if len(path) == 1:
-                yaw = 0.0
+            if index == 0:
+                yaw = current_yaw
             elif index < len(path) - 1:
                 next_cell = path[index + 1]
                 yaw = math.atan2(next_cell[1] - cell[1],next_cell[0] - cell[0])
@@ -380,6 +381,10 @@ class PathPlanner(Node):
         while current_node is not None:
             path.append(current_node.pose)
             current_node= current_node.parent
+
+        if len(path[1::]) < 5:
+            self.get_logger().warn("Path is too short, may be unsafe to follow.")
+            return None
         return path[::-1]
 
 
@@ -456,12 +461,33 @@ class PathPlanner(Node):
             response.plan.header.frame_id = self.map_frame
             response.plan.header.stamp = self.get_clock().now().to_msg()
             return response
-        # TODO: Find cell index of start and goal poses in map
-        #Start Pose to map coordinates
-        self._logger.info("Transforming start pose to map frame")
-        request.start.header.stamp = self.get_clock().now().to_msg()
-        start_pose = self._tf_buffer.transform(request.start, self.map_frame, timeout=rclpy.duration.Duration(seconds=0.5))
-        start = self.world_to_grid(self.map_info, start_pose.pose.position)
+        self._logger.info("Transforming start pose to map frame via live TF")
+        current_yaw = 0.0
+        try:
+            trans = self._tf_buffer.lookup_transform(
+                self.map_frame,
+                'base_link',
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.5)
+            )
+            live_position = Point(
+                x=trans.transform.translation.x,
+                y=trans.transform.translation.y,
+                z=trans.transform.translation.z
+            )
+            start = self.world_to_grid(self.map_info, live_position)
+
+            q = trans.transform.rotation
+            current_yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        except Exception as e:
+            self.get_logger().warn(f"Live TF lookup failed ({e}), falling back to request.start...")
+            request.start.header.stamp = self.get_clock().now().to_msg()
+            start_pose = self._tf_buffer.transform(request.start, self.map_frame, timeout=rclpy.duration.Duration(seconds=0.5))
+            start = self.world_to_grid(self.map_info, start_pose.pose.position)
+            
+            q = start_pose.pose.orientation
+            current_yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
         goal = self.world_to_grid(self.map_info, request.goal.pose.position)
 
         # If goal is unsafe or out of bounds, search for nearest safe cell
@@ -473,7 +499,7 @@ class PathPlanner(Node):
                 goal = safe_goal
             else:
                 self.get_logger().warning("No safe cells found nearby. Goal is completely unreachable.")
-                response.plan = self.build_path_message([])
+                response.plan = self.build_path_message([], current_yaw)
                 return response
 
         # TODO: Calculate a path using A* 
@@ -489,7 +515,10 @@ class PathPlanner(Node):
             self.get_logger().warning("A* could not find a path.")
 
         # TODO: Return your path 
-        response.plan = self.build_path_message(path)
+        if path is None:
+            response.plan = self.build_path_message([], current_yaw)
+        else:
+            response.plan = self.build_path_message(path[:-1], current_yaw)
         return response
 
         # pass

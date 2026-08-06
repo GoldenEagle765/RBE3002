@@ -83,6 +83,7 @@ class FrontierExplorer(Node):
 
             if goal_point is not None:
                 self._logger.info("Requesting path to goal point: (" + str(goal_point.x) + "," + str(goal_point.y) + ")")
+                self.has_path = True
                 self.send_request(goal_point)
 
     def save_map(self):
@@ -151,7 +152,7 @@ class FrontierExplorer(Node):
         num_labels, labels, stats, centroids = cv.connectedComponentsWithStats(frontiers, connectivity=8)
         valid_centroids = []
         for i in range(1, num_labels):
-            if(stats[i, cv.CC_STAT_AREA] > 10):
+            if(stats[i, cv.CC_STAT_AREA] > 5):
                 cx, cy = centroids[i]
                 valid_centroids.append((cx, cy))
         self._logger.info("Found " + str(len(valid_centroids)) + " valid centroids")

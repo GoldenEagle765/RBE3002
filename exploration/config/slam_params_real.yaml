@@ -19,3 +19,5 @@ slam_toolbox:
     use_sim_time: false
     occupancy_threshold: 0.1
     min_pass_through: 2
+    minimum_travel_distance: 0.0
+    minimum_travel_heading: 0.0
