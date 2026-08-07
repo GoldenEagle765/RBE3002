@@ -8,6 +8,8 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.descriptions import ComposableNode, ParameterFile
 from nav2_common.launch import  RewrittenYaml
+from launch.actions import ExecuteProcess
+from launch.substitutions import FindExecutable
 
 def generate_launch_description():
 
@@ -75,7 +77,11 @@ def generate_launch_description():
         executable = 'path_planner.py',
         name = 'path_planner',
         parameters = [{'use_sim_time': False}],
-        output = 'screen'
+        output = 'screen',
+
+        remappings = [
+            ("/clicked_point", "/placeholder")
+        ]
     )
     
     controller = Node(
@@ -95,28 +101,39 @@ def generate_launch_description():
         parameters = [configured_params]
     )
 
-
-
-
-    gz_sim = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([os.path.join(
-            get_package_share_directory('simulation'), 'launch'), 'big_field.launch.py']),
-        launch_arguments = [
-            ('use_sim_time', 'True')
-        ]
+    
+    reinit_global_loc = ExecuteProcess(
+        cmd=[
+            FindExecutable(name='ros2'),
+            ' service call ',
+            '/reinitialize_global_localization ',
+            'std_srvs/srv/Empty ',
+            '"{}"'
+        ],
+        shell=True
     )
+
+    no_motion = ExecuteProcess(
+            cmd=[
+                FindExecutable(name='ros2'),
+                ' service call ',
+                '/request_nomotion_update ',
+                'std_srvs/srv/Empty ',
+                '"{}"'
+            ],
+            shell=True
+        )
 
 
     localizer = Node(
         package='exploration',
-        executable='localizer.py',
+        executable='Localization.py',
         name='localizer',
         parameters=[
             {'use_sim_time': False}
-        ]
+        ],
+        output='screen'
     )
-
-
 
     return LaunchDescription([ 
         # gz_sim,
@@ -126,5 +143,7 @@ def generate_launch_description():
         rviz2,
         pathplanner,
         controller, 
-        #localizer, 
+        reinit_global_loc,
+        no_motion,
+        localizer, 
     ])

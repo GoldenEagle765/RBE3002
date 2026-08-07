@@ -19,6 +19,7 @@ install(DIRECTORY
 
 install(PROGRAMS
   src/frontier_explorer.py
+  src/Localization.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
